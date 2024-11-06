@@ -19,12 +19,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "spi.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stm32f0xx_hal_spi.h"
+#include "stm32f0xx_hal_tim.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,9 +45,9 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
 /* USER CODE BEGIN PV */
-
+uint16_t adcValue = 0;    // Variable to store ADC value
+uint16_t pwmValue = 0;    // Variable to store PWM duty cycle
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,7 +90,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_SPI1_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
+
+  // Start PWM Timer for TIM1 Channel 1
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
   /* USER CODE END 2 */
 
@@ -95,6 +103,30 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    // SPI communication with ADC
+    uint8_t txData[3] = {0x01, 0x80, 0x00}; // Start bit + CH0 for single-ended mode
+    uint8_t rxData[3] = {0};                // Receive buffer
+
+    // Pull CS low to start communication
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET);
+
+    // Transmit and receive data
+    HAL_SPI_TransmitReceive(&hspi1, txData, rxData, 3, HAL_MAX_DELAY);
+
+    // Pull CS high to end communication
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
+
+    // Extract 10-bit ADC value from rxData
+    adcValue = ((rxData[1] & 0x03) << 8) | rxData[2];
+
+    // Convert ADC value to PWM duty cycle (5-10%)
+    pwmValue = (adcValue * 500 / 1023) + 500; // Scale to 500 to 1000 for 5-10% duty cycle
+
+    // Set PWM duty cycle
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pwmValue);
+
+    // Delay to avoid overwhelming the ADC
+    HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -122,6 +154,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+
   /** Initializes the CPU, AHB and APB buses clocks
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
@@ -177,5 +210,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
